@@ -36,7 +36,7 @@ def set_user_game(chat_id, estimated_answer):
     :param chat_id: id пользователя
     :param estimated_answer: правильный ответ из БД
     '''
-    with shelve.open(config.SHELVE_NAME) as storage:
+    with shelve.open(config.SHELVE_GAME_NAME) as storage:
         storage[str(chat_id)] = estimated_answer
 
 def finish_user_game(chat_id):
@@ -44,7 +44,7 @@ def finish_user_game(chat_id):
     Заканичваем игру текущего пользователя и удаляем правильный ответ из хранилища
     :param chat_id: id пользователя
     '''
-    with shelve.open(config.SHELVE_NAME) as storage:
+    with shelve.open(config.SHELVE_GAME_NAME) as storage:
         del storage[str(chat_id)]
 
 def get_answer_for_user(chat_id):
@@ -53,13 +53,31 @@ def get_answer_for_user(chat_id):
     :param chat_id: id пользователя
     :return: (str) правильный ответ / None
     '''
-    with shelve.open(config.SHELVE_NAME) as storage:
+    with shelve.open(config.SHELVE_GAME_NAME) as storage:
         try:
             answer = storage[str(chat_id)]
             return answer
         # Если человек не играет, ничего не возвращаем
         except(KeyError):
             return None
+
+
+def add_right_score(chat_id):
+    with shelve.open(config.SHELVE_SCORES) as storage:
+        try:
+            current_value = storage[str(chat_id) + '_right_answers']
+        except KeyError:
+            current_value = 0
+        storage[str(chat_id) + '_right_answers'] = current_value + 1
+
+
+def add_wrong_score(chat_id):
+    with shelve.open(config.SHELVE_SCORES) as storage:
+        try:
+            current_value = storage[str(chat_id) + '_wrong_answers']
+        except KeyError:
+            current_value = 0
+        storage[str(chat_id) + '_wrong_answers'] = current_value + 1
 
 
 bot = telebot.TeleBot(config.TOKEN)
@@ -134,6 +152,27 @@ def gm(message):
     print(message)
     bot.send_message(message.chat.id, 'Как думаешь, {}, что за трек?'.format(message.from_user.first_name))
 
+    with shelve.open(config.SHELVE_SCORES) as storage:
+
+        try:
+            right_answers_count = storage[str(message.chat.id) + '_right_answers']
+        except KeyError:
+            right_answers_count = 0
+
+        try:
+            wrong_answers_count = storage[str(message.chat.id) + '_wrong_answers']
+        except KeyError:
+            wrong_answers_count = 0
+
+        print(str(right_answers_count) + ' ' + str(wrong_answers_count))
+
+        if right_answers_count + wrong_answers_count != 0:
+            right_percent = 100 * right_answers_count / (right_answers_count + wrong_answers_count)
+        else:
+            right_percent = 0
+
+        bot.send_message(message.chat.id, 'Твой процент правильных ответов - {}%'.format(right_percent))
+
     mysql_connect.close()
 
 
@@ -159,8 +198,10 @@ def check_answer(message):
         if message.text == answer:
             #bot.send_message(message.chat.id, 'Верно!', reply_markup=keyboard_hider)
             bot.send_voice(message.chat.id, config.RIGHT_SOUND_FILE_ID, 'Верно!', reply_to_message_id=message.message_id)
+            add_right_score(message.chat.id)
         else:
-            bot.send_message(message.chat.id, 'Неправильно, попробуй еще раз!', reply_markup=keyboard_hider, reply_to_message_id=message.message_id)
+            add_wrong_score(message.chat.id)
+            bot.send_message(message.chat.id, 'Нет!', reply_markup=keyboard_hider, reply_to_message_id=message.message_id)
 
         finish_user_game(message.chat.id)
 
